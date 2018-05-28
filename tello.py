@@ -57,7 +57,7 @@ class Tello:
 
         self.receive_thread.start()
 
-        if self.send_command('command') != 'OK':
+        if self.send('command') != 'OK':
             raise RuntimeError('Tello rejected attempt to enter command mode')
 
     def __del__(self):
@@ -75,8 +75,8 @@ class Tello:
             try:
                 self.response, ip = self.socket.recvfrom(256)
                 log.info(self.response.decode(encoding="utf-8"))
-            except Exception:
-                break
+            except Exception as e:
+                log.error(e)
 
     def flip(self, direction):
         """Flip.
@@ -89,7 +89,7 @@ class Tello:
 
         """
 
-        return self.send_command('flip %s' % direction)
+        return self.send('flip %s' % direction)
 
     def get_battery(self):
         """Return percent battery life remaining.
@@ -99,7 +99,7 @@ class Tello:
 
         """
 
-        return self.send_command('battery?')
+        return self.send('battery?')
 
     def get_flight_time(self):
         """Return the number of seconds elapsed during flight.
@@ -108,7 +108,7 @@ class Tello:
             int: Seconds elapsed during flight.
         """
 
-        return int(self.send_command('time?'))
+        return int(self.send('time?'))
 
     def get_speed(self):
         """Return the current speed.
@@ -117,7 +117,7 @@ class Tello:
             float: Current speed in cm/s.
         """
 
-        return float(self.send_command('speed?'))
+        return float(self.send('speed?'))
 
     def land(self):
         """Initiate landing.
@@ -126,7 +126,7 @@ class Tello:
             str: Response from Tello, 'OK' or 'FALSE'.
         """
 
-        return self.send_command('land')
+        return self.send('land')
 
     def move(self, direction, distance):
         """Move in a direction for a distance.
@@ -139,93 +139,31 @@ class Tello:
             str: Response from Tello, 'OK' or 'FALSE'.
         """
 
-        return self.send_command('%s %s' % (direction, distance))
+        return self.send('%s %s' % (direction, distance))
 
-    def move_backward(self, distance):
-        """Move backward for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-
+    def backward(self, distance):
         return self.move('back', distance)
 
-    def move_down(self, distance):
-        """Move down for a distance.
+    def down(self, distance, delay=2):
+        response = self.move('down', distance)
+        sleep(delay)
+        return response
 
-        See comments for Tello.move().
+    def forward(self, distance, delay=1.5):
+        result = self.move('forward', distance)
+        sleep(delay)
+        return result
 
-        Args:
-            distance (int): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-
-        return self.move('down', distance)
-
-    def move_forward(self, distance):
-        """Move forward for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-        return self.move('forward', distance)
-
-    def move_left(self, distance):
-        """Move left for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
+    def left(self, distance):
         return self.move('left', distance)
 
-    def move_right(self, distance):
-        """Move right for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        """
+    def right(self, distance):
         return self.move('right', distance)
 
-    def move_up(self, distance):
-        """Move up for a distance.
-
-        See comments for Tello.move().
-
-        Args:
-            distance (int): Distance to move.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
-        """
-
+    def up(self, distance):
         return self.move('up', distance)
 
-    def send_command(self, command):
+    def send(self, command):
         """Send a command to the Tello and waits for a response.
 
         If self.command_timeout is exceeded before a response is received,
@@ -251,7 +189,7 @@ class Tello:
 
         while self.response is None:
             if self.abort_flag:
-                raise RuntimeError('No response to command')
+                raise RuntimeError('No response to %s' % command)
             sleep(.01)
 
         timer.cancel()
@@ -279,34 +217,29 @@ class Tello:
             str: Response from Tello, 'OK' or 'FALSE'.
         """
 
-        return self.send_command('speed %s' % speed)
+        return self.send('speed %s' % speed)
 
-    def take_off(self):
+    def take_off(self, delay=5):
         """Initiate take-off.
 
         Returns:
             str: Response from Tello, 'OK' or 'FALSE'.
         """
-        return self.send_command('takeoff')
+        response = self.send('takeoff')
+        sleep(delay)
+        return response
 
-    def rotate_cw(self, degrees):
-        """Rotate clockwise.
+    def rotate(self, degrees, delay=1):
+        """Rotate counterclockwise when degrees is positive and clockwise when negative.
 
         Args:
-            degrees (int): Degrees to rotate, 1 to 360.
+            degrees (int): Degrees to rotate, 1 to 360 or -1 to -360.
 
         Returns:
             str: Response from Tello, 'OK' or 'FALSE'.
         """
-        return self.send_command('cw %s' % degrees)
-
-    def rotate_ccw(self, degrees):
-        """Rotate counter-clockwise.
-
-        Args:
-            degrees (int): Degrees to rotate, 1 to 360.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-        """
-        return self.send_command('ccw %s' % degrees)
+        ccw = degrees > 0
+        cmd = 'ccw' if ccw else 'cw'
+        result = self.send('%s %s' % (cmd, degrees if ccw else -degrees))
+        sleep(delay)
+        return result
