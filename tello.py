@@ -14,7 +14,6 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 """
 
 import socket
@@ -34,8 +33,6 @@ class Tello:
         Args:
             local_ip (str): Local IP address to bind.
             local_port (int): Local port to bind.
-            imperial (bool): If True, speed is MPH and distance is feet.
-                             If False, speed is KPH and distance is meters.
             command_timeout (int|float): Number of seconds to wait for a response to a command.
             tello_ip (str): Tello IP.
             tello_port (int): Tello port.
@@ -43,18 +40,15 @@ class Tello:
         Raises:
             RuntimeError: If the Tello rejects the attempt to enter command mode.
         """
-
-        self.abort_flag = False
+        self.timed_out = False
         self.command_timeout = command_timeout
         self.response = None
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.tello_address = (tello_ip, tello_port)
-
         self.socket.bind((local_ip, local_port))
 
         self.receive_thread = threading.Thread(target=self._receive_thread)
         self.receive_thread.daemon = True
-
         self.receive_thread.start()
 
         if self.send('command') != 'OK':
@@ -62,14 +56,12 @@ class Tello:
 
     def __del__(self):
         """Close the local socket."""
-
         self.socket.close()
 
     def _receive_thread(self):
         """Listen for responses from the Tello.
 
         Runs as a thread, sets self.response to whatever the Tello last returned.
-
         """
         while True:
             try:
@@ -83,49 +75,20 @@ class Tello:
 
         Args:
             direction (str): Direction to flip, 'l', 'r', 'f', 'b', 'lb', 'lf', 'rb' or 'rf'.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-
         """
-
         return self.send('flip %s' % direction)
 
-    def get_battery(self):
-        """Return percent battery life remaining.
-
-        Returns:
-            int: Percent battery life remaining.
-
-        """
-
+    def battery_percent_remaining(self):
         return self.send('battery?')
 
-    def get_flight_time(self):
-        """Return the number of seconds elapsed during flight.
-
-        Returns:
-            int: Seconds elapsed during flight.
-        """
-
+    def flight_time_seconds(self):
         return int(self.send('time?'))
 
     def get_speed(self):
-        """Return the current speed.
-
-        Returns:
-            float: Current speed in cm/s.
-        """
-
+        """Return the current speed in cm/s."""
         return float(self.send('speed?'))
 
     def land(self):
-        """Initiate landing.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-        """
-
         return self.send('land')
 
     def move(self, direction, distance):
@@ -134,25 +97,21 @@ class Tello:
         Args:
             direction (str): Direction to move, 'forward', 'back', 'right' or 'left'.
             distance (int|float): Distance to move, in cm.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
         """
 
         return self.send('%s %s' % (direction, distance))
 
+    def down(self, distance):
+        return self.move('down', distance)
+
+    def up(self, distance):
+        return self.move('up', distance)
+
     def backward(self, distance):
         return self.move('back', distance)
 
-    def down(self, distance, delay=2):
-        response = self.move('down', distance)
-        sleep(delay)
-        return response
-
-    def forward(self, distance, delay=1.5):
-        result = self.move('forward', distance)
-        sleep(delay)
-        return result
+    def forward(self, distance):
+        return self.move('forward', distance)
 
     def left(self, distance):
         return self.move('left', distance)
@@ -160,11 +119,8 @@ class Tello:
     def right(self, distance):
         return self.move('right', distance)
 
-    def up(self, distance):
-        return self.move('up', distance)
-
     def send(self, command):
-        """Send a command to the Tello and waits for a response.
+        """Send a command to the Tello and wait for a response.
 
         If self.command_timeout is exceeded before a response is received,
         a RuntimeError exception is raised.
@@ -178,17 +134,14 @@ class Tello:
         Raises:
             RuntimeError: If no response is received within self.timeout seconds.
         """
-
         log.info(command)
-        self.abort_flag = False
-        timer = threading.Timer(self.command_timeout, self.set_abort_flag)
-
+        self.timed_out = False
+        timer = threading.Timer(self.command_timeout, self._time_out)
         self.socket.sendto(command.encode('utf-8'), self.tello_address)
-
         timer.start()
 
         while self.response is None:
-            if self.abort_flag:
+            if self.timed_out:
                 raise RuntimeError('No response to %s' % command)
             sleep(.01)
 
@@ -198,48 +151,29 @@ class Tello:
 
         return decoded_response
 
-    def set_abort_flag(self):
-        """Set self.abort_flag to True.
-
-        Used by the timer in Tello.send_command() to indicate to that a response
-        timeout has occurred.
-        """
-
-        self.abort_flag = True
+    def _time_out(self):
+        self.timed_out = True
 
     def set_speed(self, speed):
         """Set speed.
 
         Args:
             speed (int|float): Speed in cm/s.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
         """
 
         return self.send('speed %s' % speed)
 
     def take_off(self, delay=5):
-        """Initiate take-off.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
-        """
         response = self.send('takeoff')
         sleep(delay)
         return response
 
-    def rotate(self, degrees, delay=1):
+    def rotate(self, degrees):
         """Rotate counterclockwise when degrees is positive and clockwise when negative.
 
         Args:
             degrees (int): Degrees to rotate, 1 to 360 or -1 to -360.
-
-        Returns:
-            str: Response from Tello, 'OK' or 'FALSE'.
         """
         ccw = degrees > 0
         cmd = 'ccw' if ccw else 'cw'
-        result = self.send('%s %s' % (cmd, degrees if ccw else -degrees))
-        sleep(delay)
-        return result
+        return self.send('%s %s' % (cmd, degrees if ccw else -degrees))
